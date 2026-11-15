@@ -47,7 +47,7 @@ check('roofing trade', e.trade === 'Roofing', e.trade);
 
 const replies = runCode(join(dir, 'koodi', 'vastaus.js'), parsed.filter((r) => r.isRfq), nodes);
 check('three replies', replies.length === 3);
-check('reply confirms receipt and request reference', replies[0].replyBody.startsWith('Thanks for sending this over. We received your request (reference RFQ-20260303-B7A1)'));
+check('reply confirms receipt and request reference', replies[0].replyBody.startsWith('We received your request (reference RFQ-20260303-B7A1)'));
 check('reply has no placeholders left', !/\{\{|undefined|null/.test(replies.map((r) => r.replyBody).join('\n')));
 check('reply mentions missing info only when missing', !/still need/.test(replies[0].replyBody) && /still need: phone number/.test(replies[1].replyBody));
 check('first slot is next business day (Wed Mar 4)', /Wednesday, March 4 at 10:00 AM/.test(replies[0].replyBody), replies[0].replyBody);

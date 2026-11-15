@@ -24,7 +24,7 @@ for (const item of $input.all()) {
   const r = item.json;
   const [d1, d2] = nextBusinessDays(now, 2);
   const lines = [];
-  lines.push('Thanks for sending this over. We received your request (reference ' + r.rfqId + ') and one of us will review it.');
+  lines.push('We received your request (reference ' + r.rfqId + ') and one of us will review it.');
   if (r.missing) {
     lines.push('');
     lines.push('To prepare an accurate quote we still need: ' + r.missing + '. Reply to this email with those and we will pick it up from there.');
