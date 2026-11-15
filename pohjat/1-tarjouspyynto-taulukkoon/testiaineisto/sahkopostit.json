@@ -1,0 +1,42 @@
+[
+  {
+    "id": "18f3a1c2d9e0b7a1",
+    "threadId": "18f3a1c2d9e0b7a1",
+    "date": "2026-03-03T15:12:00Z",
+    "from": { "text": "Dana Whitfield <dana@fictional-builders.example>", "value": [{ "address": "dana@fictional-builders.example", "name": "Dana Whitfield" }] },
+    "subject": "Request for quote: boiler replacement, Maple Street school",
+    "text": "Hi,\nWe are bidding the Maple Street school renovation and need a plumbing and HVAC quote for replacing two boilers and the related piping.\nProject address: 410 Maple Street, Springfield\nBids due: March 20, 2026\nBudget: $85,000\nPhone: (555) 010-4477\nPlease send drawings review times.\nThanks,\nDana"
+  },
+  {
+    "id": "18f3a2b7c4d1e002",
+    "threadId": "18f3a2b7c4d1e002",
+    "date": "2026-03-03T17:40:00Z",
+    "from": "Marcus Lee <marcus@example-contractors.example>",
+    "subject": "Need an estimate",
+    "text": "Can you give us a price on rewiring a small office? Need it by March 6."
+  },
+  {
+    "id": "18f3a3e0aa11f003",
+    "threadId": "18f3a3e0aa11f003",
+    "date": "2026-03-04T08:05:00Z",
+    "from": "Weekly Trade News <no-reply@newsletter.example>",
+    "subject": "This week: quote tools for contractors",
+    "text": "Ten ways to write better quotes. Click here to read more.\nUnsubscribe at any time."
+  },
+  {
+    "id": "18f3a4f1bb22a004",
+    "threadId": "18f3a4f1bb22a004",
+    "date": "2026-03-04T09:30:00Z",
+    "from": "Own Company <office@our-company.example>",
+    "subject": "Quote copy for our records",
+    "text": "Internal copy of the quote we sent last week."
+  },
+  {
+    "id": "18f3a5a2cc33b005",
+    "threadId": "18f3a5a2cc33b005",
+    "date": "2026-03-06T14:00:00Z",
+    "from": "Priya Nair <priya@fictional-roofing.example>",
+    "subject": "RFQ - roof replacement warehouse",
+    "text": "Scope: tear off and replace 12,000 sq ft low-slope roof on a warehouse, including new gutters and flashing.\nSite: 88 Industrial Way, Riverton\nDeadline: 3/10\nCell: 555-010-9921"
+  }
+]

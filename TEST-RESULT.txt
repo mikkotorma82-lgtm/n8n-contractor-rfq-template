@@ -1,0 +1,34 @@
+﻿OK   five inputs give five rows
+OK   full RFQ detected
+OK   sender name and email
+OK   address read
+OK   deadline normalised
+OK   budget read
+OK   phone read
+OK   trade plumbing before HVAC order
+OK   full RFQ has nothing missing
+OK   deadline 17 days away is Normal
+OK   rfqId format
+OK   short request detected
+OK   plain string sender parsed
+OK   missing fields listed
+OK   deadline inside the text found
+OK   deadline 3 days away is High
+OK   trade electrical
+OK   newsletter is not an RFQ
+OK   own address is not an RFQ
+OK   slash date without year takes year from mail
+OK   phone with dashes found
+OK   roofing trade
+OK   three replies
+OK   reply confirms receipt and request reference
+OK   reply has no placeholders left
+OK   reply mentions missing info only when missing
+OK   first slot is next business day (Wed Mar 4)
+OK   Friday mail skips the weekend
+OK   subject gets Re:
+OK   reply never gives a price
+OK   urgent request is flagged in reply
+OK   late handling offers days counted from the run date (Thu Mar 12, Fri Mar 13)
+
+All checks passed.

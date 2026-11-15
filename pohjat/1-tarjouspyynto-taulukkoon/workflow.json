@@ -1,0 +1,298 @@
+{
+  "name": "Request email to sheet and reply draft",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Request to sheet and first reply\n1. Open each node with a red warning and pick your own Gmail and Google Sheets accounts.\n2. In Settings, set your own address, company name, sender name and time zone label.\n3. In \"Add row to sheet\" paste your spreadsheet ID and make sure the first row has the column names used here.\n4. Replies are saved as Gmail DRAFTS. Read them, then send. Do not switch to automatic sending before you have read at least ten drafts.",
+        "width": 420,
+        "height": 300
+      },
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "Setup notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "in:inbox -from:me"
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-4000-8000-000000000002",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "00000000-0000-4000-8000-000000000003",
+              "name": "ownEmail",
+              "value": "you@your-company.example",
+              "type": "string"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000004",
+              "name": "companyName",
+              "value": "Your Company LLC",
+              "type": "string"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000005",
+              "name": "senderName",
+              "value": "Your Name",
+              "type": "string"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000006",
+              "name": "timezoneLabel",
+              "value": "Central Time",
+              "type": "string"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000007",
+              "name": "slotMorning",
+              "value": "10:00 AM",
+              "type": "string"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000008",
+              "name": "slotAfternoon",
+              "value": "2:00 PM",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "00000000-0000-4000-8000-000000000009",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code node \"Parse request\": turns an incoming email into one structured RFQ row.\n// Runs once for all items. Reads the Settings node. No external calls.\nconst cfg = $('Settings').first().json;\nconst MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec';\nconst TRADES = [\n  ['Plumbing', /plumb|pipe|water heater|drain|sewer|fixture/i],\n  ['HVAC', /hvac|heating|furnace|air condition|ventilation|duct|boiler|heat pump/i],\n  ['Electrical', /electric|wiring|panel|lighting|generator|conduit/i],\n  ['Roofing', /roof|shingle|gutter/i],\n  ['General', /renovat|remodel|build|construction|concrete|framing|drywall|paint/i],\n];\n\nfunction labelled(body, labels) {\n  const re = new RegExp('^\\\\s*(?:' + labels + ')\\\\s*[:\\\\-]\\\\s*(.+)$', 'im');\n  const m = body.match(re);\n  return m ? m[1].trim() : '';\n}\n\nfunction parseSender(raw) {\n  const text = typeof raw === 'string' ? raw : (raw?.text ?? raw?.value?.[0]?.address ?? '');\n  const em = text.match(/([^\\s<>\"',;]+@[^\\s<>\"',;]+)/);\n  const email = em ? em[1].toLowerCase() : '';\n  let name = text.replace(/<[^>]*>/, '').replace(/[\"']/g, '').trim();\n  if (!name || name.includes('@')) name = typeof raw === 'object' && raw?.value?.[0]?.name ? raw.value[0].name : '';\n  return { name, email };\n}\n\nfunction parseDeadline(text, received) {\n  if (!text) return null;\n  let t = text.replace(/(\\d)(st|nd|rd|th)\\b/gi, '$1');\n  const hasYear = /\\b20\\d{2}\\b/.test(t) || /\\d[\\/.]\\d{1,2}[\\/.]\\d{2,4}/.test(t);\n  if (!hasYear) t += ', ' + received.getUTCFullYear();\n  const d = new Date(t + ' 12:00:00 UTC');\n  return isNaN(d) ? null : d;\n}\n\nconst rows = [];\nfor (const item of $input.all()) {\n  const m = item.json;\n  const subject = String(m.subject ?? m.Subject ?? '').trim();\n  const body = String(m.text ?? m.textPlain ?? m.snippet ?? '').replace(/\\r/g, '');\n  const sender = parseSender(m.from ?? m.From ?? '');\n  const receivedRaw = m.date ?? m.internalDate ?? null;\n  const received = receivedRaw && !isNaN(new Date(receivedRaw)) ? new Date(receivedRaw) : new Date();\n\n  const own = String(cfg.ownEmail || '').toLowerCase();\n  const automated = /no-?reply|donotreply|mailer-daemon|newsletter|unsubscribe/i.test(sender.email + ' ' + body.slice(-400));\n  const looksLikeRfq = /\\b(rfq|request for (?:a )?(?:quote|quotation|proposal|bid)s?|invitation to bid|bid request|quote|estimate|tender|proposal|bid)\\b/i.test(subject + ' ' + body);\n  const isRfq = looksLikeRfq && !automated && sender.email !== '' && sender.email !== own;\n\n  const phoneLabelled = labelled(body, 'phone|tel|mobile|cell');\n  const phoneAny = body.match(/(?:\\+?1[\\s.-]?)?\\(?\\d{3}\\)?[\\s.-]?\\d{3}[\\s.-]?\\d{4}/);\n  const phone = phoneLabelled || (phoneAny ? phoneAny[0].trim() : '');\n\n  const location = labelled(body, 'project address|job ?site|site address|address|location|site');\n\n  let deadlineText = labelled(body, 'bids? due|due date|due|deadline|submit by|needed by');\n  if (!deadlineText) {\n    const dm = body.match(new RegExp('(?:due|by|before|deadline(?: is)?)\\\\s+(?:on\\\\s+)?((?:' + MONTHS + ')[a-z]*\\\\.?\\\\s+\\\\d{1,2}(?:st|nd|rd|th)?(?:,?\\\\s+\\\\d{4})?|\\\\d{1,2}[\\\\/.]\\\\d{1,2}(?:[\\\\/.]\\\\d{2,4})?)', 'i'));\n    deadlineText = dm ? dm[1].trim() : '';\n  }\n  const deadline = parseDeadline(deadlineText, received);\n\n  const budgetLabelled = labelled(body, 'budget');\n  const budgetAny = body.match(/\\$\\s?\\d[\\d,]*(?:\\.\\d+)?\\s?[kK]?/);\n  const budget = budgetLabelled || (budgetAny ? budgetAny[0].trim() : '');\n\n  const hay = subject + ' ' + body;\n  const trade = (TRADES.find(([, re]) => re.test(hay)) || ['Other'])[0];\n\n  const scopeLabelled = labelled(body, 'scope|project|description|details');\n  const scope = (scopeLabelled || body.replace(/\\s+/g, ' ').trim()).slice(0, 280);\n\n  const missing = [];\n  if (!phone) missing.push('phone number');\n  if (!location) missing.push('project address');\n  if (!deadline && !deadlineText) missing.push('bid due date');\n  if (scope.length < 40) missing.push('scope of work');\n\n  const daysLeft = deadline ? Math.ceil((deadline - received) / 86400000) : null;\n  const priority = daysLeft !== null && daysLeft <= 7 ? 'High' : 'Normal';\n\n  const stamp = received.toISOString().slice(0, 10);\n  const idTail = String(m.id ?? '0000').replace(/[^a-z0-9]/gi, '').slice(-4).toUpperCase().padStart(4, '0');\n\n  rows.push({\n    json: {\n      isRfq,\n      rfqId: 'RFQ-' + stamp.replace(/-/g, '') + '-' + idTail,\n      received: stamp,\n      name: sender.name,\n      email: sender.email,\n      phone,\n      trade,\n      location,\n      deadline: deadline ? deadline.toISOString().slice(0, 10) : deadlineText,\n      budget,\n      scope,\n      missing: missing.join(', '),\n      priority,\n      status: 'Reply drafted',\n      subject,\n      threadId: m.threadId ?? '',\n    },\n  });\n}\nreturn rows;\n"
+      },
+      "id": "00000000-0000-4000-8000-000000000010",
+      "name": "Parse request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "00000000-0000-4000-8000-000000000011",
+              "leftValue": "={{ $json.isRfq }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-4000-8000-000000000012",
+      "name": "Is it a request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code node \"Write reply\": builds the first reply for each RFQ row.\n// The reply confirms receipt, asks for missing details and offers two call times.\n// It never states a price or a date for the bid.\nconst cfg = $('Settings').first().json;\n// Call times count from the moment this runs, not from the day the email arrived,\n// so a request handled late never gets offered days that have already passed.\n// cfg.testNow is only for tests; leave it out of the Settings node.\nconst now = cfg.testNow ? new Date(cfg.testNow + 'T12:00:00Z') : new Date();\n\nfunction nextBusinessDays(from, count) {\n  const days = [];\n  const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));\n  while (days.length < count) {\n    d.setUTCDate(d.getUTCDate() + 1);\n    const wd = d.getUTCDay();\n    if (wd !== 0 && wd !== 6) days.push(new Date(d));\n  }\n  return days;\n}\nconst fmt = (d) => d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });\n\nconst out = [];\nfor (const item of $input.all()) {\n  const r = item.json;\n  const [d1, d2] = nextBusinessDays(now, 2);\n  const lines = [];\n  lines.push('Thanks for sending this over. We received your request (reference ' + r.rfqId + ') and one of us will review it.');\n  if (r.missing) {\n    lines.push('');\n    lines.push('To prepare an accurate quote we still need: ' + r.missing + '. Reply to this email with those and we will pick it up from there.');\n  }\n  lines.push('');\n  lines.push('If a short call is easier, we can do ' + fmt(d1) + ' at ' + cfg.slotMorning + ' or ' + fmt(d2) + ' at ' + cfg.slotAfternoon + ' (' + cfg.timezoneLabel + '). Tell us which suits you, or suggest another time.');\n  if (r.priority === 'High') {\n    lines.push('');\n    lines.push('We saw the due date in your message and are looking at it first.');\n  }\n  lines.push('');\n  lines.push(cfg.senderName);\n  lines.push(cfg.companyName);\n  out.push({\n    json: {\n      ...r,\n      replySubject: /^re:/i.test(r.subject) ? r.subject : 'Re: ' + (r.subject || 'Your request'),\n      replyBody: lines.join('\\n'),\n    },\n  });\n}\nreturn out;\n"
+      },
+      "id": "00000000-0000-4000-8000-000000000013",
+      "name": "Write reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Requests",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "RFQ ID": "={{ $json.rfqId }}",
+            "Received": "={{ $json.received }}",
+            "Name": "={{ $json.name }}",
+            "Email": "={{ $json.email }}",
+            "Phone": "={{ $json.phone }}",
+            "Trade": "={{ $json.trade }}",
+            "Location": "={{ $json.location }}",
+            "Deadline": "={{ $json.deadline }}",
+            "Budget": "={{ $json.budget }}",
+            "Scope": "={{ $json.scope }}",
+            "Missing": "={{ $json.missing }}",
+            "Priority": "={{ $json.priority }}",
+            "Status": "={{ $json.status }}",
+            "Subject": "={{ $json.subject }}",
+            "Thread ID": "={{ $json.threadId }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-4000-8000-000000000014",
+      "name": "Add row to sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1100,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "={{ $('Write reply').item.json.replySubject }}",
+        "emailType": "text",
+        "message": "={{ $('Write reply').item.json.replyBody }}",
+        "options": {
+          "threadId": "={{ $('Write reply').item.json.threadId }}",
+          "sendTo": "={{ $('Write reply').item.json.email }}"
+        }
+      },
+      "id": "00000000-0000-4000-8000-000000000015",
+      "name": "Save reply as draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1320,
+        -100
+      ]
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Settings": {
+      "main": [
+        [
+          {
+            "node": "Parse request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse request": {
+      "main": [
+        [
+          {
+            "node": "Is it a request?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is it a request?": {
+      "main": [
+        [
+          {
+            "node": "Write reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write reply": {
+      "main": [
+        [
+          {
+            "node": "Add row to sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add row to sheet": {
+      "main": [
+        [
+          {
+            "node": "Save reply as draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}
