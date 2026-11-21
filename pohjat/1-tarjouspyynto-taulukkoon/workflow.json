@@ -1,11 +1,11 @@
 {
-  "name": "Request email to sheet and reply draft",
+  "name": "Request email to sheet and reply draft (classify, dedupe, error branch)",
   "nodes": [
     {
       "parameters": {
-        "content": "## Request to sheet and first reply\n1. Open each node with a red warning and pick your own Gmail and Google Sheets accounts.\n2. In Settings, set your own address, company name, sender name and time zone label.\n3. In \"Add row to sheet\" paste your spreadsheet ID and make sure the first row has the column names used here.\n4. Replies are saved as Gmail DRAFTS. Read them, then send. Do not switch to automatic sending before you have read at least ten drafts.",
-        "width": 420,
-        "height": 300
+        "content": "## Request to sheet and first reply\n1. Open each node with a red warning and pick your own Gmail and Google Sheets accounts.\n2. In Settings, set your own address, company name, sender name and time zone label.\n3. In \"Add row to sheet\" paste your spreadsheet ID and make sure the first row has the column names used here (two new ones: Type and Handling).\n4. Replies are saved as Gmail DRAFTS. Read them, then send. Do not switch to automatic sending before you have read at least ten drafts.\n5. Cancellations, addenda and follow-ups get a sheet row but no reply draft.\n6. Duplicate memory only works while the workflow is active.\n7. If the sheet or the draft fails, a note is saved as a draft to your own address and the request is not marked as handled.",
+        "width": 460,
+        "height": 380
       },
       "id": "00000000-0000-4000-8000-000000000001",
       "name": "Setup notes",
@@ -13,7 +13,7 @@
       "typeVersion": 1,
       "position": [
         -80,
-        -260
+        -300
       ]
     },
     {
@@ -96,7 +96,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Code node \"Parse request\": turns an incoming email into one structured RFQ row.\n// Runs once for all items. Reads the Settings node. No external calls.\nconst cfg = $('Settings').first().json;\nconst MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec';\nconst TRADES = [\n  ['Plumbing', /plumb|pipe|water heater|drain|sewer|fixture/i],\n  ['HVAC', /hvac|heating|furnace|air condition|ventilation|duct|boiler|heat pump/i],\n  ['Electrical', /electric|wiring|panel|lighting|generator|conduit/i],\n  ['Roofing', /roof|shingle|gutter/i],\n  ['General', /renovat|remodel|build|construction|concrete|framing|drywall|paint/i],\n];\n\nfunction labelled(body, labels) {\n  const re = new RegExp('^\\\\s*(?:' + labels + ')\\\\s*[:\\\\-]\\\\s*(.+)$', 'im');\n  const m = body.match(re);\n  return m ? m[1].trim() : '';\n}\n\nfunction parseSender(raw) {\n  const text = typeof raw === 'string' ? raw : (raw?.text ?? raw?.value?.[0]?.address ?? '');\n  const em = text.match(/([^\\s<>\"',;]+@[^\\s<>\"',;]+)/);\n  const email = em ? em[1].toLowerCase() : '';\n  let name = text.replace(/<[^>]*>/, '').replace(/[\"']/g, '').trim();\n  if (!name || name.includes('@')) name = typeof raw === 'object' && raw?.value?.[0]?.name ? raw.value[0].name : '';\n  return { name, email };\n}\n\nfunction parseDeadline(text, received) {\n  if (!text) return null;\n  let t = text.replace(/(\\d)(st|nd|rd|th)\\b/gi, '$1');\n  const hasYear = /\\b20\\d{2}\\b/.test(t) || /\\d[\\/.]\\d{1,2}[\\/.]\\d{2,4}/.test(t);\n  if (!hasYear) t += ', ' + received.getUTCFullYear();\n  const d = new Date(t + ' 12:00:00 UTC');\n  return isNaN(d) ? null : d;\n}\n\nconst rows = [];\nfor (const item of $input.all()) {\n  const m = item.json;\n  const subject = String(m.subject ?? m.Subject ?? '').trim();\n  const body = String(m.text ?? m.textPlain ?? m.snippet ?? '').replace(/\\r/g, '');\n  const sender = parseSender(m.from ?? m.From ?? '');\n  const receivedRaw = m.date ?? m.internalDate ?? null;\n  const received = receivedRaw && !isNaN(new Date(receivedRaw)) ? new Date(receivedRaw) : new Date();\n\n  const own = String(cfg.ownEmail || '').toLowerCase();\n  const automated = /no-?reply|donotreply|mailer-daemon|newsletter|unsubscribe/i.test(sender.email + ' ' + body.slice(-400));\n  const looksLikeRfq = /\\b(rfq|request for (?:a )?(?:quote|quotation|proposal|bid)s?|invitation to bid|bid request|quote|estimate|tender|proposal|bid)\\b/i.test(subject + ' ' + body);\n  const isRfq = looksLikeRfq && !automated && sender.email !== '' && sender.email !== own;\n\n  const phoneLabelled = labelled(body, 'phone|tel|mobile|cell');\n  const phoneAny = body.match(/(?:\\+?1[\\s.-]?)?\\(?\\d{3}\\)?[\\s.-]?\\d{3}[\\s.-]?\\d{4}/);\n  const phone = phoneLabelled || (phoneAny ? phoneAny[0].trim() : '');\n\n  const location = labelled(body, 'project address|job ?site|site address|address|location|site');\n\n  let deadlineText = labelled(body, 'bids? due|due date|due|deadline|submit by|needed by');\n  if (!deadlineText) {\n    const dm = body.match(new RegExp('(?:due|by|before|deadline(?: is)?)\\\\s+(?:on\\\\s+)?((?:' + MONTHS + ')[a-z]*\\\\.?\\\\s+\\\\d{1,2}(?:st|nd|rd|th)?(?:,?\\\\s+\\\\d{4})?|\\\\d{1,2}[\\\\/.]\\\\d{1,2}(?:[\\\\/.]\\\\d{2,4})?)', 'i'));\n    deadlineText = dm ? dm[1].trim() : '';\n  }\n  const deadline = parseDeadline(deadlineText, received);\n\n  const budgetLabelled = labelled(body, 'budget');\n  const budgetAny = body.match(/\\$\\s?\\d[\\d,]*(?:\\.\\d+)?\\s?[kK]?/);\n  const budget = budgetLabelled || (budgetAny ? budgetAny[0].trim() : '');\n\n  const hay = subject + ' ' + body;\n  const trade = (TRADES.find(([, re]) => re.test(hay)) || ['Other'])[0];\n\n  const scopeLabelled = labelled(body, 'scope|project|description|details');\n  const scope = (scopeLabelled || body.replace(/\\s+/g, ' ').trim()).slice(0, 280);\n\n  const missing = [];\n  if (!phone) missing.push('phone number');\n  if (!location) missing.push('project address');\n  if (!deadline && !deadlineText) missing.push('bid due date');\n  if (scope.length < 40) missing.push('scope of work');\n\n  const daysLeft = deadline ? Math.ceil((deadline - received) / 86400000) : null;\n  const priority = daysLeft !== null && daysLeft <= 7 ? 'High' : 'Normal';\n\n  const stamp = received.toISOString().slice(0, 10);\n  const idTail = String(m.id ?? '0000').replace(/[^a-z0-9]/gi, '').slice(-4).toUpperCase().padStart(4, '0');\n\n  rows.push({\n    json: {\n      isRfq,\n      rfqId: 'RFQ-' + stamp.replace(/-/g, '') + '-' + idTail,\n      received: stamp,\n      name: sender.name,\n      email: sender.email,\n      phone,\n      trade,\n      location,\n      deadline: deadline ? deadline.toISOString().slice(0, 10) : deadlineText,\n      budget,\n      scope,\n      missing: missing.join(', '),\n      priority,\n      status: 'Reply drafted',\n      subject,\n      threadId: m.threadId ?? '',\n    },\n  });\n}\nreturn rows;\n"
+        "jsCode": "// Code node \"Parse request\": turns an incoming email into one structured RFQ row.\r\n// Runs once for all items. Reads the Settings node. No external calls.\r\nconst cfg = $('Settings').first().json;\r\nconst MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec';\r\nconst TRADES = [\r\n  ['Plumbing', /plumb|pipe|water heater|drain|sewer|fixture/i],\r\n  ['HVAC', /hvac|heating|furnace|air condition|ventilation|duct|boiler|heat pump/i],\r\n  ['Electrical', /electric|wiring|panel|lighting|generator|conduit/i],\r\n  ['Roofing', /roof|shingle|gutter/i],\r\n  ['General', /renovat|remodel|build|construction|concrete|framing|drywall|paint/i],\r\n];\r\n\r\nfunction labelled(body, labels) {\r\n  const re = new RegExp('^\\\\s*(?:' + labels + ')\\\\s*[:\\\\-]\\\\s*(.+)$', 'im');\r\n  const m = body.match(re);\r\n  return m ? m[1].trim() : '';\r\n}\r\n\r\nfunction parseSender(raw) {\r\n  const text = typeof raw === 'string' ? raw : (raw?.text ?? raw?.value?.[0]?.address ?? '');\r\n  const em = text.match(/([^\\s<>\"',;]+@[^\\s<>\"',;]+)/);\r\n  const email = em ? em[1].toLowerCase() : '';\r\n  let name = text.replace(/<[^>]*>/, '').replace(/[\"']/g, '').trim();\r\n  if (!name || name.includes('@')) name = typeof raw === 'object' && raw?.value?.[0]?.name ? raw.value[0].name : '';\r\n  return { name, email };\r\n}\r\n\r\nfunction parseDeadline(text, received) {\r\n  if (!text) return null;\r\n  let t = text.replace(/(\\d)(st|nd|rd|th)\\b/gi, '$1');\r\n  const hasYear = /\\b20\\d{2}\\b/.test(t) || /\\d[\\/.]\\d{1,2}[\\/.]\\d{2,4}/.test(t);\r\n  if (!hasYear) t += ', ' + received.getUTCFullYear();\r\n  const d = new Date(t + ' 12:00:00 UTC');\r\n  return isNaN(d) ? null : d;\r\n}\r\n\r\nconst rows = [];\r\nfor (const item of $input.all()) {\r\n  const m = item.json;\r\n  const subject = String(m.subject ?? m.Subject ?? '').trim();\r\n  const body = String(m.text ?? m.textPlain ?? m.snippet ?? '').replace(/\\r/g, '');\r\n  const sender = parseSender(m.from ?? m.From ?? '');\r\n  const receivedRaw = m.date ?? m.internalDate ?? null;\r\n  const received = receivedRaw && !isNaN(new Date(receivedRaw)) ? new Date(receivedRaw) : new Date();\r\n\r\n  const own = String(cfg.ownEmail || '').toLowerCase();\r\n  const automated = /no-?reply|donotreply|mailer-daemon|newsletter|unsubscribe/i.test(sender.email + ' ' + body.slice(-400));\r\n  const looksLikeRfq = /\\b(rfq|request for (?:a )?(?:quote|quotation|proposal|bid)s?|invitation to bid|bid request|quote|estimate|tender|proposal|bid)\\b/i.test(subject + ' ' + body);\r\n  const isRfq = looksLikeRfq && !automated && sender.email !== '' && sender.email !== own;\r\n\r\n  const phoneLabelled = labelled(body, 'phone|tel|mobile|cell');\r\n  const phoneAny = body.match(/(?:\\+?1[\\s.-]?)?\\(?\\d{3}\\)?[\\s.-]?\\d{3}[\\s.-]?\\d{4}/);\r\n  const phone = phoneLabelled || (phoneAny ? phoneAny[0].trim() : '');\r\n\r\n  const location = labelled(body, 'project address|job ?site|site address|address|location|site');\r\n\r\n  let deadlineText = labelled(body, 'bids? due|due date|due|deadline|submit by|needed by');\r\n  if (!deadlineText) {\r\n    const dm = body.match(new RegExp('(?:due|by|before|deadline(?: is)?)\\\\s+(?:on\\\\s+)?((?:' + MONTHS + ')[a-z]*\\\\.?\\\\s+\\\\d{1,2}(?:st|nd|rd|th)?(?:,?\\\\s+\\\\d{4})?|\\\\d{1,2}[\\\\/.]\\\\d{1,2}(?:[\\\\/.]\\\\d{2,4})?)', 'i'));\r\n    deadlineText = dm ? dm[1].trim() : '';\r\n  }\r\n  const deadline = parseDeadline(deadlineText, received);\r\n\r\n  const budgetLabelled = labelled(body, 'budget');\r\n  const budgetAny = body.match(/\\$\\s?\\d[\\d,]*(?:\\.\\d+)?\\s?[kK]?/);\r\n  const budget = budgetLabelled || (budgetAny ? budgetAny[0].trim() : '');\r\n\r\n  const hay = subject + ' ' + body;\r\n  const trade = (TRADES.find(([, re]) => re.test(hay)) || ['Other'])[0];\r\n\r\n  const scopeLabelled = labelled(body, 'scope|project|description|details');\r\n  const scope = (scopeLabelled || body.replace(/\\s+/g, ' ').trim()).slice(0, 280);\r\n\r\n  const missing = [];\r\n  if (!phone) missing.push('phone number');\r\n  if (!location) missing.push('project address');\r\n  if (!deadline && !deadlineText) missing.push('bid due date');\r\n  if (scope.length < 40) missing.push('scope of work');\r\n\r\n  const daysLeft = deadline ? Math.ceil((deadline - received) / 86400000) : null;\r\n  const priority = daysLeft !== null && daysLeft <= 7 ? 'High' : 'Normal';\r\n\r\n  const stamp = received.toISOString().slice(0, 10);\r\n  const idTail = String(m.id ?? '0000').replace(/[^a-z0-9]/gi, '').slice(-4).toUpperCase().padStart(4, '0');\r\n\r\n  rows.push({\r\n    json: {\r\n      isRfq,\r\n      rfqId: 'RFQ-' + stamp.replace(/-/g, '') + '-' + idTail,\r\n      received: stamp,\r\n      name: sender.name,\r\n      email: sender.email,\r\n      phone,\r\n      trade,\r\n      location,\r\n      deadline: deadline ? deadline.toISOString().slice(0, 10) : deadlineText,\r\n      budget,\r\n      scope,\r\n      missing: missing.join(', '),\r\n      priority,\r\n      status: 'Reply drafted',\r\n      subject,\r\n      threadId: m.threadId ?? '',\r\n    },\r\n  });\r\n}\r\nreturn rows;\r\n"
       },
       "id": "00000000-0000-4000-8000-000000000010",
       "name": "Parse request",
@@ -104,6 +104,19 @@
       "typeVersion": 2,
       "position": [
         440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code node \"Classify request\": adds a request type and a handling level to each parsed row.\n// Runs once for all items. No external calls. Rows that are not requests pass through unchanged.\nconst TYPES = [\n  ['Cancellation', /\\b(cancel(?:l?ed|lation)?|withdraw(?:n)?|no longer (?:need|require)|project (?:is )?(?:on hold|dead))\\b/i],\n  ['Addendum', /\\b(addendum|addenda|revised (?:drawings?|scope|plans?|bid)|revision|updated (?:drawings?|scope|plans?)|amended)\\b/i],\n  ['Follow-up', /\\b(following up|follow-up|any update|checking in|reminder|still waiting)\\b/i],\n  ['Bid invitation', /\\b(invitation to bid|itb|bid request|bids? due|general contractor|gc\\b|bidding)\\b/i],\n  ['Quote request', /\\b(rfq|request for (?:a )?(?:quote|quotation|proposal)s?|quote|estimate|price on|pricing)\\b/i],\n];\nconst URGENT = /\\b(asap|urgent|emergency|today|tomorrow|rush|immediately)\\b/i;\n\nconst out = [];\nfor (const item of $input.all()) {\n  const r = item.json;\n  if (!r.isRfq) { out.push({ json: { ...r, requestType: 'Not a request', handling: 'Ignore' } }); continue; }\n  const text = (r.subject || '') + ' ' + (r.scope || '');\n  const requestType = (TYPES.find(([, re]) => re.test(text)) || ['Quote request'])[0];\n  const missingCount = r.missing ? r.missing.split(',').length : 0;\n  const urgent = r.priority === 'High' || URGENT.test(text);\n  // Handling decides what the workflow does next:\n  //   Draft reply     a normal request, the reply draft asks for what is missing\n  //   Review first    cancellations, addenda and follow-ups: a person decides, no standard reply is written\n  //   Call first      urgent and thin on details: a call is faster than an email loop\n  let handling = 'Draft reply';\n  if (['Cancellation', 'Addendum', 'Follow-up'].includes(requestType)) handling = 'Review first';\n  else if (urgent && missingCount >= 2) handling = 'Call first';\n  out.push({\n    json: {\n      ...r,\n      requestType,\n      handling,\n      priority: urgent ? 'High' : r.priority,\n      status: handling === 'Draft reply' ? 'Reply drafted' : handling === 'Call first' ? 'Reply drafted, call first' : 'Needs review',\n      dedupeKey: (r.threadId || '') !== '' ? 'thread:' + r.threadId\n        : 'mail:' + r.email + '|' + String(r.subject || '').toLowerCase().replace(/^((re|fwd?):\\s*)+/i, '').replace(/\\s+/g, ' ').trim(),\n    },\n  });\n}\nreturn out;\n"
+      },
+      "id": "00000000-0000-4000-8000-000000000011",
+      "name": "Classify request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
         0
       ]
     },
@@ -118,7 +131,7 @@
           },
           "conditions": [
             {
-              "id": "00000000-0000-4000-8000-000000000011",
+              "id": "00000000-0000-4000-8000-000000000012",
               "leftValue": "={{ $json.isRfq }}",
               "rightValue": "",
               "operator": {
@@ -132,26 +145,73 @@
         },
         "options": {}
       },
-      "id": "00000000-0000-4000-8000-000000000012",
+      "id": "00000000-0000-4000-8000-000000000013",
       "name": "Is it a request?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        660,
+        880,
         0
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Code node \"Write reply\": builds the first reply for each RFQ row.\n// The reply confirms receipt, asks for missing details and offers two call times.\n// It never states a price or a date for the bid.\nconst cfg = $('Settings').first().json;\n// Call times count from the moment this runs, not from the day the email arrived,\n// so a request handled late never gets offered days that have already passed.\n// cfg.testNow is only for tests; leave it out of the Settings node.\nconst now = cfg.testNow ? new Date(cfg.testNow + 'T12:00:00Z') : new Date();\n\nfunction nextBusinessDays(from, count) {\n  const days = [];\n  const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));\n  while (days.length < count) {\n    d.setUTCDate(d.getUTCDate() + 1);\n    const wd = d.getUTCDay();\n    if (wd !== 0 && wd !== 6) days.push(new Date(d));\n  }\n  return days;\n}\nconst fmt = (d) => d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });\n\nconst out = [];\nfor (const item of $input.all()) {\n  const r = item.json;\n  const [d1, d2] = nextBusinessDays(now, 2);\n  const lines = [];\n  lines.push('We received your request (reference ' + r.rfqId + ') and one of us will review it.');\n  if (r.missing) {\n    lines.push('');\n    lines.push('To prepare an accurate quote we still need: ' + r.missing + '. Reply to this email with those and we will pick it up from there.');\n  }\n  lines.push('');\n  lines.push('If a short call is easier, we can do ' + fmt(d1) + ' at ' + cfg.slotMorning + ' or ' + fmt(d2) + ' at ' + cfg.slotAfternoon + ' (' + cfg.timezoneLabel + '). Tell us which suits you, or suggest another time.');\n  if (r.priority === 'High') {\n    lines.push('');\n    lines.push('We saw the due date in your message and are looking at it first.');\n  }\n  lines.push('');\n  lines.push(cfg.senderName);\n  lines.push(cfg.companyName);\n  out.push({\n    json: {\n      ...r,\n      replySubject: /^re:/i.test(r.subject) ? r.subject : 'Re: ' + (r.subject || 'Your request'),\n      replyBody: lines.join('\\n'),\n    },\n  });\n}\nreturn out;\n"
+        "jsCode": "// Code node \"Check duplicates\": drops requests this workflow has already handled.\n// A request is a duplicate when its key (Gmail thread, or sender plus subject) is stored from an\n// earlier run, or appears twice in the same batch. Keys are stored by the \"Mark as handled\" node\n// only after the sheet row and the draft succeeded, so a failed run can be retried.\n// Static data only persists in an ACTIVE workflow, not in manual test runs.\nconst store = $getWorkflowStaticData('global');\nconst handled = store.handledKeys || {};\nconst seenNow = new Set();\nconst out = [];\nfor (const item of $input.all()) {\n  const r = item.json;\n  const dup = Boolean(handled[r.dedupeKey]) || seenNow.has(r.dedupeKey);\n  seenNow.add(r.dedupeKey);\n  out.push({ json: { ...r, isDuplicate: dup, duplicateNote: dup ? 'Already handled: ' + r.dedupeKey : '' } });\n}\nreturn out;\n"
       },
-      "id": "00000000-0000-4000-8000-000000000013",
+      "id": "00000000-0000-4000-8000-000000000014",
+      "name": "Check duplicates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "00000000-0000-4000-8000-000000000015",
+              "leftValue": "={{ !$json.isDuplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-4000-8000-000000000016",
+      "name": "New request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code node \"Write reply\": builds the first reply for each RFQ row.\n// The reply confirms receipt, asks for missing details and offers two call times.\n// It never states a price or a date for the bid.\nconst cfg = $('Settings').first().json;\n// Call times count from the moment this runs, not from the day the email arrived,\n// so a request handled late never gets offered days that have already passed.\n// cfg.testNow is only for tests; leave it out of the Settings node.\nconst now = cfg.testNow ? new Date(cfg.testNow + 'T12:00:00Z') : new Date();\n\nfunction nextBusinessDays(from, count) {\n  const days = [];\n  const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));\n  while (days.length < count) {\n    d.setUTCDate(d.getUTCDate() + 1);\n    const wd = d.getUTCDay();\n    if (wd !== 0 && wd !== 6) days.push(new Date(d));\n  }\n  return days;\n}\nconst fmt = (d) => d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });\n\nconst out = [];\nfor (const item of $input.all()) {\n  const r = item.json;\n  if (r.handling === 'Review first') {\n    // Cancellations, addenda and follow-ups get no standard reply: a person reads them first.\n    out.push({ json: { ...r, replySubject: '', replyBody: '' } });\n    continue;\n  }\n  const [d1, d2] = nextBusinessDays(now, 2);\n  const lines = [];\n  lines.push('We received your request (reference ' + r.rfqId + ') and one of us will review it.');\n  if (r.missing) {\n    lines.push('');\n    lines.push('To prepare an accurate quote we still need: ' + r.missing + '. Reply to this email with those and we will pick it up from there.');\n  }\n  lines.push('');\n  lines.push('If a short call is easier, we can do ' + fmt(d1) + ' at ' + cfg.slotMorning + ' or ' + fmt(d2) + ' at ' + cfg.slotAfternoon + ' (' + cfg.timezoneLabel + '). Tell us which suits you, or suggest another time.');\n  if (r.priority === 'High') {\n    lines.push('');\n    lines.push('We saw the due date in your message and are looking at it first.');\n  }\n  lines.push('');\n  lines.push(cfg.senderName);\n  lines.push(cfg.companyName);\n  out.push({\n    json: {\n      ...r,\n      replySubject: /^re:/i.test(r.subject) ? r.subject : 'Re: ' + (r.subject || 'Your request'),\n      replyBody: lines.join('\\n'),\n    },\n  });\n}\nreturn out;\n"
+      },
+      "id": "00000000-0000-4000-8000-000000000017",
       "name": "Write reply",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        880,
-        -100
+        1540,
+        -200
       ]
     },
     {
@@ -182,6 +242,8 @@
             "Scope": "={{ $json.scope }}",
             "Missing": "={{ $json.missing }}",
             "Priority": "={{ $json.priority }}",
+            "Type": "={{ $json.requestType }}",
+            "Handling": "={{ $json.handling }}",
             "Status": "={{ $json.status }}",
             "Subject": "={{ $json.subject }}",
             "Thread ID": "={{ $json.threadId }}"
@@ -191,13 +253,48 @@
         },
         "options": {}
       },
-      "id": "00000000-0000-4000-8000-000000000014",
+      "id": "00000000-0000-4000-8000-000000000018",
       "name": "Add row to sheet",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
       "position": [
-        1100,
-        -100
+        1760,
+        -200
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "00000000-0000-4000-8000-000000000019",
+              "leftValue": "={{ $('Write reply').item.json.handling !== 'Review first' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00000000-0000-4000-8000-000000000020",
+      "name": "Reply wanted?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1980,
+        -300
       ]
     },
     {
@@ -211,13 +308,59 @@
           "sendTo": "={{ $('Write reply').item.json.email }}"
         }
       },
-      "id": "00000000-0000-4000-8000-000000000015",
+      "id": "00000000-0000-4000-8000-000000000021",
       "name": "Save reply as draft",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
       "position": [
-        1320,
-        -100
+        2200,
+        -400
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code node \"Mark as handled\": stores the dedupe keys of requests that reached the end without an error.\n// Keeps the newest 500 keys. Runs after the Gmail draft was saved.\nconst store = $getWorkflowStaticData('global');\nstore.handledKeys = store.handledKeys || {};\nconst done = $('Write reply').all().map((i) => i.json);\nconst stamp = new Date().toISOString();\nfor (const r of done) store.handledKeys[r.dedupeKey] = stamp;\nconst keys = Object.keys(store.handledKeys).sort((a, b) => store.handledKeys[a].localeCompare(store.handledKeys[b]));\nfor (const k of keys.slice(0, Math.max(0, keys.length - 500))) delete store.handledKeys[k];\nreturn done.map((r) => ({ json: { rfqId: r.rfqId, dedupeKey: r.dedupeKey, marked: true } }));\n"
+      },
+      "id": "00000000-0000-4000-8000-000000000022",
+      "name": "Mark as handled",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code node \"Describe error\": turns a failed sheet write or draft into a plain note for the owner.\n// It receives the error output of \"Add row to sheet\" or \"Save reply as draft\". Nothing is retried\n// and nothing is sent: the note is saved as a Gmail draft so a person sees it.\nconst cfg = $('Settings').first().json;\nconst out = [];\nfor (const item of $input.all()) {\n  const e = item.json;\n  const src = $('Write reply').all().map((i) => i.json);\n  const rfq = src[0] || {};\n  const msg = String(e.error?.message ?? e.error ?? e.message ?? 'Unknown error').slice(0, 300);\n  out.push({\n    json: {\n      alertTo: cfg.ownEmail,\n      alertSubject: 'Request workflow problem: ' + (rfq.rfqId || 'unknown request'),\n      alertBody: [\n        'The request workflow could not finish one request.',\n        '',\n        'Request: ' + (rfq.rfqId || 'unknown') + ' from ' + (rfq.email || 'unknown sender'),\n        'Subject: ' + (rfq.subject || ''),\n        'Error: ' + msg,\n        '',\n        'The request was not marked as handled. Check the sheet for a row with this ID, then answer the sender by hand or run the workflow again on the email.',\n      ].join('\\n'),\n    },\n  });\n}\nreturn out;\n"
+      },
+      "id": "00000000-0000-4000-8000-000000000023",
+      "name": "Describe error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "={{ $json.alertSubject }}",
+        "emailType": "text",
+        "message": "={{ $json.alertBody }}",
+        "options": {
+          "sendTo": "={{ $json.alertTo }}"
+        }
+      },
+      "id": "00000000-0000-4000-8000-000000000024",
+      "name": "Save error note as draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2420,
+        0
       ]
     }
   ],
@@ -248,6 +391,17 @@
       "main": [
         [
           {
+            "node": "Classify request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify request": {
+      "main": [
+        [
+          {
             "node": "Is it a request?",
             "type": "main",
             "index": 0
@@ -256,6 +410,28 @@
       ]
     },
     "Is it a request?": {
+      "main": [
+        [
+          {
+            "node": "Check duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check duplicates": {
+      "main": [
+        [
+          {
+            "node": "New request?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New request?": {
       "main": [
         [
           {
@@ -281,7 +457,61 @@
       "main": [
         [
           {
+            "node": "Reply wanted?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Describe error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply wanted?": {
+      "main": [
+        [
+          {
             "node": "Save reply as draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark as handled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save reply as draft": {
+      "main": [
+        [
+          {
+            "node": "Mark as handled",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Describe error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Describe error": {
+      "main": [
+        [
+          {
+            "node": "Save error note as draft",
             "type": "main",
             "index": 0
           }

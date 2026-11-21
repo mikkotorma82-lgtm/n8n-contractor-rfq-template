@@ -30,5 +30,31 @@ OK   subject gets Re:
 OK   reply never gives a price
 OK   urgent request is flagged in reply
 OK   late handling offers days counted from the run date (Thu Mar 12, Fri Mar 13)
+OK   classify: normal request gets a draft reply
+OK   classify: newsletter is not a request and is ignored
+OK   classify: cancellation needs review
+OK   classify: addendum needs review
+OK   classify: urgent request with little detail means call first
+OK   classify: dedupe key uses the Gmail thread
+OK   classify: dedupe key without thread ignores Re: and case
+OK   duplicates: nothing is a duplicate on the first run
+OK   reply: review rows get no reply text
+OK   reply: other rows still get a reply
+OK   duplicates: nothing is stored before the request is finished
+OK   mark: every finished request is stored
+OK   duplicates: the same emails are all caught on the second run
+OK   duplicates: a repeat inside one batch is caught
+OK   mark: only the newest 500 keys are kept
+OK   error note goes to the owner address
+OK   error note names the request and the error
+OK   error note says the request was not marked
+OK   error note works with a plain string error
+OK   workflow: has 15 nodes and unique names
+OK   workflow: every connection points at an existing node
+OK   workflow: every non-note node is reachable from the trigger
+OK   workflow: sheet and draft nodes have an error output that leads to the error note
+OK   workflow: a request is marked handled only after the draft step or when no draft is wanted
+OK   workflow: inactive and with no credentials inside
+OK   workflow: embedded code equals the source files
 
 All checks passed.

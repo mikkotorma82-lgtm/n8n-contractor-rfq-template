@@ -22,6 +22,11 @@ const fmt = (d) => d.toLocaleDateString('en-US', { weekday: 'long', month: 'long
 const out = [];
 for (const item of $input.all()) {
   const r = item.json;
+  if (r.handling === 'Review first') {
+    // Cancellations, addenda and follow-ups get no standard reply: a person reads them first.
+    out.push({ json: { ...r, replySubject: '', replyBody: '' } });
+    continue;
+  }
   const [d1, d2] = nextBusinessDays(now, 2);
   const lines = [];
   lines.push('We received your request (reference ' + r.rfqId + ') and one of us will review it.');
